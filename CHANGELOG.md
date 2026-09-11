@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- 新增 `scripts/create_assignment.py`：在课程内容区发布作业（名称/满分/说明/截止时间/本地附件），默认 dry-run 打印计划，`--yes` 才创建，创建后列表页读回验证并输出删除链接；`--list-areas` 列出课程内容区。接口为 `manageAssignment?method=showadd/add`：需 `X-Requested-With` 头（缺了 404）、表单 nonce 与 ajax nonce 双写、标题字段是 `contentName`、评分方案必选、附件为 `newFile_attachmentType=L` + `newFile_LocalFile0` 部件；删除走 POST `method=remove`（GET 会 404 且制造残留）。实测创建含附件作业成功并清理。
+
 ### Changed
 
 - **修正重大误判**：评分表单必须以 **multipart**（匹配表单 `enctype`）发送，urlencoded 会被服务端静默忽略。此前据此误判的"实例故障 / 已完成 attempt 不可改评 / 首评通道失效"均不成立——multipart 下首次评分与 Completed attempt 改评均实测成功（2026-09-11，某次作业 99→98→99 闭环验证，评语同步写入 attempt，已滚回手动分值）。`publish_grades.py` 表单路径已改 multipart；reconcile（路径 A）页面与保存端点 500 为独立现象，保留优先+自动降级策略。另修复 `feedback: null` 时 `current_feedback` 的崩溃。

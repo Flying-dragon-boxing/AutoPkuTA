@@ -85,6 +85,7 @@ description: AutoPkuTA - 面向北大教学网/Blackboard 助教的作业收取�
 | `scripts/ensure_pku3b_session.py` | 检查或刷新 pku3b 保存的 Blackboard 登录会话 |
 | `scripts/inspect_courses.py` | 按课程名 inspect：列出我的课程、全站目录搜索、列出课程的作业列（`content_id`、标题、截止时间）；`--grades` 汇总/明细查看各作业已发布的分数与评语 |
 | `scripts/publish_grades.py` | 写入单个学生的成绩与评语：**默认优先挂到该生最后一次 attempt**（评分表单接口），无提交才回退 grade 层直写（DWR）；默认 dry-run，`--yes` 才写入并输出回滚命令；`--attempt-id` 可强制指定 attempt；`--copy-from` 仅测试用途 |
+| `scripts/create_assignment.py` | 在课程内容区发布作业（名称/满分/说明/截止时间/附件；`--list-areas` 列内容区，默认 dry-run，`--yes` 才创建并读回验证） |
 | `scripts/fetch_assignment_context.py` | 从教学网页面提取作业说明、可见文本和作业附件 |
 | `scripts/collect_blackboard_submissions.py` | 用 `course_id` 和 `content_id` 拉取提交清单，可选下载附件 |
 | `scripts/normalize_group_roster.py` | 把不同形态的分组表转换为规范长表 |
