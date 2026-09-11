@@ -67,11 +67,29 @@ Blackboard Learn endpoint 和可见字段随版本、Original/Ultra Course View�
 
 关键坑：写接口的 `userId` 是**课程成员 pk**（getJSONData 行的 `uid`），不是 REST 的用户 pk（`iuid`）；用错会返回笼统的 `Throwable: Error`。成绩（grade）独立于提交（attempt）存在，无提交的学生可直接写分数和评语。实现见 `scripts/publish_grades.py`。
 
-## 关联指定 attempt 的评分（实测）
+## 关联指定 attempt 的评分（三条路径实测对比）
 
-要把分数和评语挂到**某一次 attempt**（如多次提交中的最后一次），用评分表单的页面接口：
+要把分数和评语挂到**某一次 attempt**，按优先级有三条路径：
 
-1. `GET /webapps/assignment/gradeAssignmentRedirector?outcomeDefinitionId=<col_id 去掉前导下划线>&course_id=_COURSE_&attempt_id=_ATTEMPT_` — 取表单 nonce（`name="blackboard.platform.security.NonceUtil.nonce"`，单双引号都有）。
-2. `POST /webapps/assignment/gradeAssignment/submit`（urlencoded）：`nonce, course_id, attempt_id, courseMembershipId=<成员pk>, grade, feedbacktext, feedbacktype=P, gradingNotestext=, gradingNotestype=P`。multipart 表单和 VTBE 会话存储（`feedbacktext_f/_w`）都非必需，直接纯文本即可。
-3. 该端点**成功时也返回 500**（响应组装报错，写入已提交），必须以读回为准：`GET /learn/api/public/v2/courses/{cid}/gradebook/columns/{col}/attempts/{att}` 确认 status=Completed、score、feedback。
-4. 表单只更新 attempt，不自动同步成绩簿单元格（尤其单元格曾被手动覆盖时）；需要再补一次 DWR `updateGrade` 同步单元格分数。
+### 路径 A：reconcileGrades 三件套（首选；上游 pku3b `ta` 同款）
+
+借鉴自 [pku3b 上游](https://github.com/sshwy/pku3b) 的 `ta` 实现（2026-07 引入）：
+
+1. `GET /webapps/gradebook/controller/loadReconcileData?course_id=&id=<列id>` — 一次返回整列评分状态：`attempts[].attemptId / studentUserId / status / reconciledScore / provisionalGrades[]`。读路径稳定可用，也是很好的只读整列状态接口。
+2. `GET /webapps/gradebook/controller/reconcileGrades?course_id=&id=<列id>` — 页面里提取 ajax nonce（`NonceUtil.nonce.ajax`）。
+3. `POST /webapps/gradebook/controller/saveReconcileGrade`，form 参数：`attemptId, gradableItemId, score(%.2f), hasFeedback, myfeedbacktext(评语), showStagedFeedbackToStu=true, isDetailPage=false, reconcileMode=A, course_id, blackboard.platform.security.NonceUtil.nonce.ajax`；头需 `Origin / Referer(reconcileGrades页) / X-Requested-With: XMLHttpRequest / X-Prototype-Version: 1.7`。
+
+⚠️ **实测该校实例（Learn 3900.39.0-rel.27，2026-09）reconcile 页面与 saveReconcileGrade 均 500**（loadReconcileData 正常），可能随版本修复；上游 2026-07 开发时可用。`publish_grades.py` 已内置此路径并自动降级。
+
+### 路径 B：评分表单（降级；首次评分与改评 Completed attempt 均可用）
+
+1. `GET /webapps/assignment/gradeAssignmentRedirector?outcomeDefinitionId=<列id去前导下划线>&course_id=&attempt_id=` — 取表单 nonce（`NonceUtil.nonce`，非 ajax 版）。
+2. **multipart POST**（与表单 `enctype="multipart/form-data"` 一致；⚠️ **urlencoded 会被服务端静默忽略**——曾误判为"实例故障/已完成 attempt 不可改评"，实为编码问题）：字段 `nonce, course_id, attempt_id, courseMembershipId=<成员pk数字>, grade, feedbacktext, feedbacktype=P, gradingNotestext=, gradingNotestype=P`，以 `files=` 形式发送（每字段 `(None, value)`）。VTBE 会话存储（`feedbacktext_f/_w`）非必需，纯文本即可。
+
+⚠️ 该端点**成功也返回 500**（响应组装报错，写入已提交），必须以读回为准：`GET /learn/api/public/v2/courses/{cid}/gradebook/columns/{col}/attempts/{att}` 确认 score/feedback。首次评分与已完成 attempt 的改评均实测可写（2026-09-11，multipart）。单元格若存在手动覆盖（`overridden`），用 `POST /webapps/assignment/gradeAssignment/revert`（参数 `course_id, courseMembershipId=_成员pk_1, gradableItemId, blackboard.platform.security.NonceUtil.nonce.ajax=<评分页 ajaxNonceId>`）**还原覆盖**让单元格跟随 attempt，而不是直接写单元格。清空手动单元格分：DWR `updateGrade` 传空分数与空文本（模拟 UI 清空成绩格）。
+
+### 路径 C：DWR grade 层（保底；仅无提交时使用）
+
+Grade Center 网格的 `updateGrade`（分数）+ `setComments`（评语写 grade 层 comment，不动教师备注）。成绩独立于 attempt，**只用于学生没有任何提交的场景**；有提交时禁止直接改成绩表（分数必须落在 attempt 上，单元格只能跟随或还原覆盖），改评必须走路径 A/B。
+
+`publish_grades.py` 的策略：A → 失败降级 B（multipart）→ 写后读回校验，校验不过即报错（不会假成功）。有提交时绝不直接写成绩表：单元格若与 attempt 不一致，先 `gradeAssignment/revert` 还原覆盖使其跟随 attempt，仍不一致则报错。当前实例（2026-09）路径 A 整体 500（路径 B 可用，不影响）， reconcile 恢复后自动优先走 A。

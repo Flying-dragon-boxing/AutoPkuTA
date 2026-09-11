@@ -18,10 +18,9 @@ The student-visible feedback goes to the gradebook comment (studentComment);
 the instructor-only note field is left untouched.
 
 Default behavior: the score and feedback attach to the student's LATEST attempt
-on that column (via the instructor grading form,
-/webapps/assignment/gradeAssignment/submit; it renders a 500 even on success,
-so the script verifies by reading the attempt back). Only when the student has
-NO submission does it fall back to a grade-level write (DWR updateGrade +
+on that column via the Grade Center reconcile endpoint (a single POST; write
+paths borrowed from pku3b's upstream ta implementation). Only when the student
+has NO submission does it fall back to a grade-level write (DWR updateGrade +
 setComments). Pass --attempt-id to force a specific attempt instead of the
 latest one. The instructor-only note field is never touched.
 
@@ -92,7 +91,7 @@ def current_feedback(s: requests.Session, cache_dir, course_id: str, column_id: 
         text = plain_feedback(latest)
         if text:
             return text
-    return clean(strip_tags(grade.get("feedback")))
+    return clean(strip_tags(grade.get("feedback") or ""))
 
 
 def dwr_call(s: requests.Session, cache_dir, course_bb_id: str, method: str, params: list[tuple[str, str]], batch_id: int) -> str:
@@ -179,12 +178,122 @@ def latest_attempt_id(s: requests.Session, cache_dir, course_id: str, column_id:
     return latest["id"]
 
 
-def put_grade_attempt(s: requests.Session, cache_dir, course_bb_id: str, column_bb_id: str, attempt_bb_id: str, user_id: str, score: float, feedback: str | None) -> None:
-    """Grade a SPECIFIC attempt: score + feedback attach to that attempt via the
-    instructor grading form, then the gradebook cell score is synced via DWR.
+def reconcile_data(s: requests.Session, cache_dir, course_bb_id: str, column_bb_id: str) -> dict[str, Any]:
+    """Whole-column grading state in one call: attempts, reconciled scores, provisional grades."""
+    return api_get(
+        s,
+        cache_dir,
+        "/webapps/gradebook/controller/loadReconcileData",
+        {"course_id": course_bb_id, "id": column_bb_id},
+    )
 
-    The form endpoint renders a 500 even on success (observed on Learn 3900);
-    correctness is enforced by reading the attempt back afterwards."""
+
+def reconcile_nonce(s: requests.Session, cache_dir, course_bb_id: str, column_bb_id: str) -> str:
+    r = s.get(
+        BASE_URL + "/webapps/gradebook/controller/reconcileGrades",
+        params={"course_id": course_bb_id, "id": column_bb_id},
+        timeout=30,
+        allow_redirects=False,
+        verify=ca_bundle(cache_dir),
+    )
+    m = (
+        re.search(r'name="blackboard\.platform\.security\.NonceUtil\.nonce\.ajax"[^>]*value="([^"]+)"', r.text)
+        or re.search(r'value="([0-9a-f-]{36})"[^>]*name="blackboard\.platform\.security\.NonceUtil\.nonce\.ajax"', r.text)
+    )
+    if not m:
+        raise RuntimeError("ajax nonce not found in reconcile page")
+    return m.group(1)
+
+
+def save_reconcile_grade(
+    s: requests.Session,
+    cache_dir,
+    course_bb_id: str,
+    column_bb_id: str,
+    attempt_bb_id: str,
+    score: float,
+    feedback: str | None,
+) -> None:
+    """Write score (+ optional feedback) onto ONE attempt via the Grade Center
+    reconcile endpoint. Single POST with sane HTTP semantics (borrowed from
+    pku3b's upstream ta implementation)."""
+    nonce = reconcile_nonce(s, cache_dir, course_bb_id, column_bb_id)
+    params: list[tuple[str, str]] = [
+        ("attemptId", attempt_bb_id),
+        ("gradableItemId", column_bb_id),
+        ("score", f"{score:.2f}"),
+        ("hasFeedback", "true" if feedback else "false"),
+        ("showStagedFeedbackToStu", "true"),
+        ("isDetailPage", "false"),
+        ("reconcileMode", "A"),
+        ("course_id", course_bb_id),
+        ("blackboard.platform.security.NonceUtil.nonce.ajax", nonce),
+    ]
+    if feedback:
+        params.append(("myfeedbacktext", feedback))
+    r = s.post(
+        BASE_URL + "/webapps/gradebook/controller/saveReconcileGrade",
+        data=params,
+        headers={
+            "Origin": BASE_URL,
+            "Referer": f"{BASE_URL}/webapps/gradebook/controller/reconcileGrades?course_id={course_bb_id}&id={column_bb_id}",
+            "X-Requested-With": "XMLHttpRequest",
+            "X-Prototype-Version": "1.7",
+        },
+        timeout=30,
+        allow_redirects=False,
+        verify=ca_bundle(cache_dir),
+    )
+    if not r.ok:
+        raise RuntimeError(f"saveReconcileGrade failed: {r.status_code} {r.text[:200]}")
+
+
+def revert_override(s: requests.Session, cache_dir, course_bb_id: str, column_bb_id: str, user_id: str) -> None:
+    """Revert a manual cell override (aggregateGrade.OverrideControl 的 revert 端点)
+    so the gradebook cell follows the attempt score instead of a typed-in value."""
+    member_uid = membership_uid(s, cache_dir, course_bb_id, pk(user_id))
+    attempts = [
+        a for a in column_attempts(s, cache_dir, course_bb_id, column_bb_id)
+        if a.get("userId") == user_id
+    ]
+    page_params = {"outcomeDefinitionId": column_bb_id.strip("_"), "course_id": course_bb_id}
+    if attempts:
+        latest = max(attempts, key=lambda a: a.get("attemptDate") or a.get("created") or "")
+        page_params["attempt_id"] = latest["id"]
+    page = s.get(
+        BASE_URL + "/webapps/assignment/gradeAssignmentRedirector",
+        params=page_params,
+        timeout=30,
+        allow_redirects=True,
+        verify=ca_bundle(cache_dir),
+    )
+    m = re.search(r'id="ajaxNonceId"[^>]*value="([^"]+)"', page.text) or re.search(
+        r'value="([0-9a-f-]{36})"[^>]*id="ajaxNonceId"', page.text
+    )
+    if not m:
+        raise RuntimeError("ajaxNonceId not found on grading page")
+    r = s.post(
+        BASE_URL + "/webapps/assignment/gradeAssignment/revert",
+        data={
+            "course_id": course_bb_id,
+            "courseMembershipId": f"_{member_uid}_1",
+            "gradableItemId": column_bb_id,
+            "blackboard.platform.security.NonceUtil.nonce.ajax": m.group(1),
+        },
+        headers={"X-Requested-With": "XMLHttpRequest"},
+        timeout=30,
+        allow_redirects=False,
+        verify=ca_bundle(cache_dir),
+    )
+    if not r.ok:
+        raise RuntimeError(f"override revert failed: {r.status_code} {r.text[:150]}")
+
+
+def put_grade_attempt_form(s: requests.Session, cache_dir, course_bb_id: str, column_bb_id: str, attempt_bb_id: str, user_id: str, score: float, feedback: str | None) -> None:
+    """Fallback attempt grading via the instructor grading form
+    (/webapps/assignment/gradeAssignment/submit). That endpoint renders a 500
+    even on success on this Learn build, so correctness is enforced by reading
+    the attempt back afterwards."""
     member_uid = membership_uid(s, cache_dir, course_bb_id, pk(user_id))
     page = s.get(
         BASE_URL + "/webapps/assignment/gradeAssignmentRedirector",
@@ -193,35 +302,69 @@ def put_grade_attempt(s: requests.Session, cache_dir, course_bb_id: str, column_
         allow_redirects=True,
         verify=ca_bundle(cache_dir),
     )
-    nonce_m = re.search(r"name=['\"]blackboard\.platform\.security\.NonceUtil\.nonce['\"][^>]*?value=['\"]([^'\"]+)['\"]", page.text)
+    nonce_m = re.search(r"name=['\"]blackboard\.platform\.security\.NonceUtil\.nonce['\"][^>]*?value=['\"]([^'\"]*)['\"]", page.text)
     if not nonce_m:
         raise RuntimeError("grading form nonce not found")
     fields = {
-        "blackboard.platform.security.NonceUtil.nonce": nonce_m.group(1),
-        "course_id": course_bb_id,
-        "attempt_id": attempt_bb_id,
-        "courseMembershipId": member_uid,
-        "grade": f"{score:g}",
-        "feedbacktext": feedback or "",
-        "feedbacktype": "P",
-        "gradingNotestext": "",
-        "gradingNotestype": "P",
+        "blackboard.platform.security.NonceUtil.nonce": (None, nonce_m.group(1)),
+        "course_id": (None, course_bb_id),
+        "attempt_id": (None, attempt_bb_id),
+        "courseMembershipId": (None, member_uid),
+        "grade": (None, f"{score:g}"),
+        "feedbacktext": (None, feedback or ""),
+        "feedbacktype": (None, "P"),
+        "gradingNotestext": (None, ""),
+        "gradingNotestype": (None, "P"),
     }
-    r = s.post(
+    # 表单 enctype 是 multipart/form-data；实测 urlencoded 会被静默忽略
+    s.post(
         BASE_URL + "/webapps/assignment/gradeAssignment/submit",
-        data=fields,
+        files=fields,
         headers={"Referer": page.url},
         timeout=30,
         allow_redirects=False,
         verify=ca_bundle(cache_dir),
     )
-    # 500-on-success is expected; verify by reading the attempt back
-    attempt = api_get(s, cache_dir, f"/learn/api/public/v2/courses/{course_bb_id}/gradebook/columns/{column_bb_id}/attempts/{attempt_bb_id}")
-    if attempt.get("status") not in ("Completed", "Graded") or float(attempt.get("score") or -1) != float(score):
-        raise RuntimeError(f"attempt write not confirmed: status={attempt.get('status')} score={attempt.get('score')} (HTTP {r.status_code})")
+
+
+def put_grade_attempt(s: requests.Session, cache_dir, course_bb_id: str, column_bb_id: str, user_id: str, score: float, feedback: str | None, attempt_bb_id: str | None = None) -> None:
+    """Grade one attempt via the reconcile endpoint (single POST for score+feedback,
+    unlike the grading form which 500s on success). Defaults to the user's LATEST
+    attempt; pass attempt_bb_id to force another one. If the reconcile write leaves
+    the gradebook cell stale, sync it via DWR."""
+    attempts = sorted(
+        [a for a in column_attempts(s, cache_dir, course_bb_id, column_bb_id) if a.get("userId") == user_id],
+        key=lambda a: a.get("attemptDate") or a.get("created") or "",
+    )
+    if not attempts:
+        raise SystemExit(f"user {user_id} has no attempt on {column_bb_id}; use the grade-level write instead")
+    latest_id = attempt_bb_id or attempts[-1]["id"]
+    try:
+        save_reconcile_grade(s, cache_dir, course_bb_id, column_bb_id, latest_id, score, feedback)
+    except RuntimeError as exc:
+        print(f"reconcile path failed ({exc}); falling back to the grading form", file=sys.stderr)
+        put_grade_attempt_form(s, cache_dir, course_bb_id, column_bb_id, latest_id, user_id, score, feedback)
+
+    attempt = api_get(
+        s,
+        cache_dir,
+        f"/learn/api/public/v2/courses/{course_bb_id}/gradebook/columns/{column_bb_id}/attempts/{latest_id}",
+    )
+    if float(attempt.get("score") or -1) != float(score):
+        raise RuntimeError(f"attempt score not confirmed: {attempt.get('score')} != {score}")
     if feedback and clean(plain_feedback({"feedback": attempt.get("feedback")})) != clean(feedback):
-        raise RuntimeError("attempt feedback not confirmed after submit")
-    put_grade(s, cache_dir, course_bb_id, column_bb_id, user_id, score, None)
+        raise RuntimeError("attempt feedback not confirmed after reconcile write")
+
+    # 有提交时不允许直接改成绩表：若单元格仍是旧的手动覆盖分，还原覆盖让它跟随 attempt
+    cell = get_grade(s, cache_dir, course_bb_id, column_bb_id, user_id)
+    if float(cell.get("score") or -1) != float(score):
+        revert_override(s, cache_dir, course_bb_id, column_bb_id, latest_id)
+        cell = get_grade(s, cache_dir, course_bb_id, column_bb_id, user_id)
+        if float(cell.get("score") or -1) != float(score):
+            raise RuntimeError(
+                f"gradebook cell still shows {cell.get('score')} (likely a manual override); "
+                "revert it in the Grade Center UI so it follows the attempt"
+            )
 
 
 def main() -> None:
@@ -280,7 +423,7 @@ def main() -> None:
         return
 
     if attempt_id:
-        put_grade_attempt(s, cache_dir, args.course_id, args.column_id, attempt_id, tgt_id, new_score, new_feedback)
+        put_grade_attempt(s, cache_dir, args.course_id, args.column_id, tgt_id, new_score, new_feedback, attempt_id)
     else:
         put_grade(s, cache_dir, args.course_id, args.column_id, tgt_id, new_score, new_feedback)
     after = get_grade(s, cache_dir, args.course_id, args.column_id, tgt_id)
