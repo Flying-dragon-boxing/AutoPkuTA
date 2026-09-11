@@ -4,7 +4,7 @@
 
 ### Changed
 
-- **修正重大误判**：评分表单必须以 **multipart**（匹配表单 `enctype`）发送，urlencoded 会被服务端静默忽略。此前据此误判的"实例故障 / 已完成 attempt 不可改评 / 首评通道失效"均不成立——multipart 下首次评分与 Completed attempt 改评均实测成功（2026-09-11，第10次作业 99→98→99 闭环验证，评语同步写入 attempt，已滚回手动分值）。`publish_grades.py` 表单路径已改 multipart；reconcile（路径 A）页面与保存端点 500 为独立现象，保留优先+自动降级策略。另修复 `feedback: null` 时 `current_feedback` 的崩溃。
+- **修正重大误判**：评分表单必须以 **multipart**（匹配表单 `enctype`）发送，urlencoded 会被服务端静默忽略。此前据此误判的"实例故障 / 已完成 attempt 不可改评 / 首评通道失效"均不成立——multipart 下首次评分与 Completed attempt 改评均实测成功（2026-09-11，某次作业 99→98→99 闭环验证，评语同步写入 attempt，已滚回手动分值）。`publish_grades.py` 表单路径已改 multipart；reconcile（路径 A）页面与保存端点 500 为独立现象，保留优先+自动降级策略。另修复 `feedback: null` 时 `current_feedback` 的崩溃。
 - `publish_grades.py` attempt 路径重构为 **reconcile 三件套优先**（借鉴 pku3b 上游 `ta` 的 `loadReconcileData`/`reconcileGrades`/`saveReconcileGrade`，单次 POST 写分数+评语），失败自动降级评分表单。新增**红线语义**：有提交时绝不直接改成绩表——分数必须落在 attempt 上，单元格只允许"还原覆盖后跟随 attempt"（`gradeAssignment/revert` 端点，含 ajaxNonceId nonce），不跟随则报错。
 - 新增 `sub-skills/references/group-roster-format.md`：分组表规范长表格式（`topic,group_id,member_order,member_name`）、`normalize_group_roster.py` 支持的输入形态（长表/宽表/简单行及列名别名）、按组归档的输出结构与未匹配核对说明；SKILL.md 索引与 README 工作流同步引用。
 - `publish_grades.py` 默认行为：分数和评语**优先挂到该生最后一次 attempt**（自动解析，`--attempt-id` 仍可强制指定某次），无提交才回退 grade 层直写；dry-run 计划里显示将写入的 attempt。

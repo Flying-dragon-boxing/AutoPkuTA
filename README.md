@@ -21,6 +21,20 @@
 
 完整的原则、安全边界与标准流程见 [`SKILL.md`](./SKILL.md)。
 
+## 与上游 pku3b `ta` 的关系
+
+上游 [pku3b](https://github.com/sshwy/pku3b)（master 分支）已内置助教命令 `pku3b ta`：**查看批改组、批量下载提交、登分**（单人/批量/交互）。本项目始于 2026 年 5 月，当时是个人用的助教工具，上游还没有 ta 功能；上游在 7 月加入了等价的助教命令，基础收取与登分能力两边都有。
+
+AutoPkuTA 的增量在工具之上的工作流，可作为上游或他校同类工具的参考：
+
+- **小组作业全流程**：分组表规范化（容忍各种来源表格形态）→ 按组归档提交物 → 未匹配核对；格式见 `sub-skills/references/group-roster-format.md`
+- **批改质量管线**：先 deterministic checks 再按 rubric/LLM 评分，`grading.json` 与人工复核队列可追溯
+- **评语写回**：分数+评语关联到学生**最后一次 attempt**（改评同样落 attempt，不直接改成绩表），写后读回验证、附回滚命令
+- **发布安全**：写操作默认 dry-run、`--yes` 才生效
+- **发布后核对**：读回线上分数与评语，与本地记录比对
+
+两者技术上共生：本项目复用 pku3b 的登录会话；写路径的接口实测整理在 `sub-skills/references/blackboard-rest-api.md`（REST/DWR/表单/reconcile 四条路线踩过的坑），需要时可查。
+
 ## 安装
 
 需要 Node.js（npx）。把技能装到任意已检测到的编码 agent（Claude Code / Codex / Kimi Code 等）：
