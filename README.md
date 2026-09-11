@@ -1,5 +1,9 @@
 # AutoPkuTA
 
+**English**: AutoPkuTA is an agent skill for teaching assistants on Peking University's Blackboard (`course.pku.edu.cn`). It collects assignment submissions, grades them against a rubric, publishes scores and feedback, and reads the gradebook back for verification — driven by the coding agent you already use (Claude Code / Codex / Kimi Code). It is the TA-side companion of [AutoPku](https://github.com/ICUlizhi/AutoPku) and reuses [pku3b](https://github.com/sshwy/pku3b)'s logged-in session.
+
+> **Other Blackboard Learn instances**: most of the toolkit is not PKU-specific and should adapt with minor changes. Reads use standard Blackboard Learn public REST APIs; writes drive the Original Grade Center's own DWR endpoints and grading form (verified on Learn 3900 — see `sub-skills/references/blackboard-rest-api.md` for the exact paths and pitfalls). The only PKU-specific part is login: pku3b authenticates via PKU's IAAA SSO. For another Learn instance, swap the session acquisition in `scripts/pku3b_session.py` (`load_cookie_header` + `blackboard_session`) for that instance's auth, then re-verify the write paths documented above.
+
 面向北京大学教学网（Blackboard）助教的作业收取、批改、复核、成绩发布与导出技能（Agent Skill）。
 
 本项目是 [AutoPku](https://github.com/ICUlizhi/AutoPku)（[autopku.com](https://autopku.com/)）的助教侧衍生：AutoPku 面向学生端完成作业，AutoPkuTA 面向助教端批改作业。底层复用 [pku3b](https://github.com/sshwy/pku3b) 的登录会话与教学网访问能力。
@@ -142,17 +146,6 @@ AutoPkuTA/
 ├── examples/                 # 一次性/课程专用脚本（仅参考实现）
 └── requirements.txt
 ```
-
-## 故障排查
-
-- **会话失效**：`python3 scripts/ensure_pku3b_session.py --refresh`（多数情况可无交互刷新）。
-- **找不到 pku3b**：设置 `PKU3B_BIN`，或把 pku3b 放入 `PATH`，或保持源码仓库在相邻 `../pku3b` 且已构建。
-- **REST 写 405/403**：该校 Blackboard 的 cookie 会话只读开放，写操作强制 OAuth2；`publish_grades.py` 已内置可用的 DWR/表单写路径，无需处理。
-- **评分表单 500**：`gradeAssignment/submit` 端点成功时也返回 500（响应组装报错），`publish_grades.py` 以写后读回为准，不以此判断成败。
-
-## 安全原则
-
-只访问当前账号可见的课程与成绩列；发布成绩前必须输出待发布摘要并经用户确认；写操作默认 dry-run、逐条确认、保留回滚。详见 `SKILL.md` 的「关键安全边界」。
 
 ## 许可证
 
