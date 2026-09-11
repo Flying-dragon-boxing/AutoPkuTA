@@ -27,7 +27,7 @@
 
 ```bash
 # 从 GitHub 安装
-npx skills add flying-dragon-boxing/AutoPkuTA
+npx skills add Flying-dragon-boxing/AutoPkuTA
 
 # 或从本地路径安装
 npx skills add /path/to/AutoPkuTA
@@ -41,8 +41,8 @@ npx skills add /path/to/AutoPkuTA
 
 ```bash
 cd AutoPkuTA
-uv venv && uv pip install -r requirements.txt   # 任何虚拟环境都推荐用 uv
-pku3b init                                      # 交互式登录教学网，只需一次
+pip install -r requirements.txt   # requests + pandas（pandas 仅分组表读 xlsx 时需要）
+pku3b init                        # 交互式登录教学网，只需一次
 ```
 
 pku3b 的查找顺序：`PKU3B_BIN` 环境变量 → `PATH` → 相邻源码仓库 `../pku3b/target/{release,debug}/pku3b`。

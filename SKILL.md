@@ -29,7 +29,7 @@ description: AutoPkuTA - 面向北大教学网/Blackboard 助教的作业收取�
 
 ## 环境依赖
 
-脚本依赖 Python 3.10+、`requests`、`pandas`，以及已登录的 [pku3b](https://github.com/sshwy/pku3b) CLI（pku3b 按 `PKU3B_BIN` 环境变量 → `PATH` → 相邻 `../pku3b/target/` 的顺序自动查找）。缺少 Python 依赖时在技能目录运行 `uv venv && uv pip install -r requirements.txt`；会话失效时先运行 `scripts/ensure_pku3b_session.py`。
+脚本依赖 Python 3.10+、`requests`、`pandas`，以及已登录的 [pku3b](https://github.com/sshwy/pku3b) CLI（pku3b 按 `PKU3B_BIN` 环境变量 → `PATH` → 相邻 `../pku3b/target/` 的顺序自动查找）。缺少 Python 依赖时在技能目录运行 `pip install -r requirements.txt`；会话失效时先运行 `scripts/ensure_pku3b_session.py`。
 
 ## 工作目录约定
 
