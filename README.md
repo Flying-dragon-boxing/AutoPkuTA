@@ -13,6 +13,7 @@
 | 阶段 | 能力 | 主要脚本 |
 |------|------|---------|
 | 定位 | 按课程名查课程/作业，拿 `course_id`、`content_id`、成绩列 | `inspect_courses.py` |
+| 发布作业 | 在课程内容区创建作业：满分、说明、截止时间、附件 | `create_assignment.py` |
 | 收取 | 拉取提交清单、下载附件、生成分组与 manifest | `collect_blackboard_submissions.py` 等 |
 | 批改 | 作业说明抓取、隔离编译/运行检查、LLM 批改包 | `fetch_assignment_context.py`、`run_code_checks.py`、`prepare_llm_grading_packets.py` |
 | 发布 | 写入分数与评语（**优先挂最后一次提交**，写前 dry-run、写后验证、可回滚） | `publish_grades.py` |
@@ -151,6 +152,7 @@ python3 scripts/inspect_courses.py 并行程序设计 --grades 第3次作业   #
 | `scripts/run_code_checks.py` | 按本次作业配置隔离运行编译/测试/脚本检查 |
 | `scripts/prepare_llm_grading_packets.py` | 为每名学生生成含作业说明、源码片段和检查日志的 LLM 批改包 |
 | `scripts/publish_grades.py` | 写入单个学生的成绩与评语（dry-run → `--yes`，写后验证 + 回滚命令） |
+| `scripts/create_assignment.py` | 在课程内容区发布作业（名称/满分/说明/截止时间/附件；`--list-areas` 列内容区） |
 | `examples/grade_abacus_hw6.py` 等 | 一次性/课程专用脚本，仅参考实现，不得作为默认评分标准 |
 
 ## 目录结构
