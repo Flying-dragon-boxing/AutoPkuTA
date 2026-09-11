@@ -76,6 +76,7 @@ description: AutoPkuTA - 面向北大教学网/Blackboard 助教的作业收取�
 | Reference | `sub-skills/references/blackboard-rest-api.md` | Blackboard REST API 认证模型和助教侧候选 endpoint |
 | Reference | `sub-skills/references/grading-schema.md` | `grading.json`、成绩表和反馈字段规范 |
 | Reference | `sub-skills/references/checks-config-examples.md` | 常见代码作业编译/运行检查配置模板 |
+| Reference | `sub-skills/references/group-roster-format.md` | 分组表规范长表格式、支持的输入形态与按组归档说明 |
 
 ## 脚本入口
 

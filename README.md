@@ -79,7 +79,14 @@ python3 scripts/fetch_assignment_context.py \
     --outdir 作业/hw3/context --download-attachments
 ```
 
-分组作业先 `normalize_group_roster.py` 转规范分组表，再 `group_blackboard_submissions.py` 按组归档。
+分组作业先把分组表转成规范长表，再按组归档（格式见 `sub-skills/references/group-roster-format.md`）：
+
+```bash
+python3 scripts/normalize_group_roster.py 分组表.xlsx -o 作业/hw3/groups_normalized.csv
+python3 scripts/group_blackboard_submissions.py \
+    --manifest 作业/hw3/submissions/submission_manifest.json \
+    --groups 作业/hw3/groups_normalized.csv --outdir 作业/hw3/by_group
+```
 
 ### 3. 检查与批改
 
